@@ -1,0 +1,503 @@
+import { useState, useEffect, useCallback } from "react";
+
+// ─── Constants ────────────────────────────────────────────────────
+const PASSWORD = "Aryan@1436#";
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTHS_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const WEEK_DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+// ─── Timetable (slots auto-calculate hours for task count) ────────
+const NORMAL_TIMETABLE = [
+  { id:"n1",  time:"00:00 – 00:30", subject:"Exercise",            icon:"💪" },
+  { id:"n2",  time:"00:30 – 03:00", subject:"Lecture (Time 1)",    icon:"🎧" },
+  { id:"n3",  time:"07:00 – 08:00", subject:"Sub Revision",        icon:"📖" },
+  { id:"n4",  time:"08:00 – 13:00", subject:"Class & H.W",         icon:"🏫" },
+  { id:"n5",  time:"13:30 – 15:00", subject:"H.W / PYQ's",         icon:"📝" },
+  { id:"n6",  time:"15:00 – 17:00", subject:"Sub 1 Questions",     icon:"🧠" },
+  { id:"n7",  time:"17:00 – 19:00", subject:"Sub 2 Questions",     icon:"⚡" },
+  { id:"n8",  time:"19:00 – 20:00", subject:"Error & Sub Revision",icon:"🔍" },
+  { id:"n9",  time:"22:00 – 23:00", subject:"Lecture (Time 2)",    icon:"🎧" },
+  { id:"n10", time:"23:00 – 00:00", subject:"Laptop Learning",     icon:"💻" },
+];
+
+const HOLIDAY_TIMETABLE = [
+  { id:"h1",  time:"00:00 – 00:30", subject:"Exercise",            icon:"💪" },
+  { id:"h2",  time:"00:30 – 03:00", subject:"Lecture (Time 1)",    icon:"🎧" },
+  { id:"h3",  time:"08:00 – 09:00", subject:"Get Ready",           icon:"🌅" },
+  { id:"h4",  time:"09:00 – 12:00", subject:"Mock Test",           icon:"📋" },
+  { id:"h5",  time:"13:00 – 16:00", subject:"Mock Test Analysis",  icon:"📊" },
+  { id:"h6",  time:"17:00 – 19:00", subject:"Sub 1 Questions",     icon:"🧠" },
+  { id:"h7",  time:"19:00 – 21:00", subject:"NCERT",               icon:"📚" },
+  { id:"h8",  time:"22:00 – 22:30", subject:"Lecture (Time 2)",    icon:"🎧" },
+  { id:"h9",  time:"22:30 – 00:00", subject:"Laptop Learning",     icon:"💻" },
+];
+
+const HABITS = [
+  {id:"hab1",name:"Morning Workout",icon:"💪"},
+  {id:"hab2",name:"Read 30 mins",   icon:"📚"},
+  {id:"hab3",name:"Drink 8 glasses",icon:"💧"},
+  {id:"hab4",name:"No Social Media",icon:"📵"},
+  {id:"hab5",name:"Meditate",       icon:"🧘"},
+  {id:"hab6",name:"Sleep by 10 PM", icon:"😴"},
+];
+
+// ─── Parse "HH:MM – HH:MM" → number of 30-min slots (min 1) ──────
+function calcSlots(timeStr) {
+  try {
+    const parts = timeStr.split("–").map(s => s.trim());
+    const toMins = t => { const [h,m] = t.split(":").map(Number); return h*60+m; };
+    let diff = toMins(parts[1]) - toMins(parts[0]);
+    if (diff <= 0) diff += 24*60; // midnight wrap
+    return Math.max(1, Math.round(diff / 60)); // 1 slot per hour (min 1)
+  } catch { return 1; }
+}
+
+// ─── Tiny localStorage hook ────────────────────────────────────────
+function useLS(key, def) {
+  const [v, setV] = useState(() => {
+    try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : def; }
+    catch { return def; }
+  });
+  const set = useCallback(fn => {
+    setV(prev => {
+      const next = typeof fn === "function" ? fn(prev) : fn;
+      try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [key]);
+  return [v, set];
+}
+
+function todayKey() { return new Date().toISOString().split("T")[0]; }
+function dateKey(d)  { return d.toISOString().split("T")[0]; }
+
+// ─── Root ─────────────────────────────────────────────────────────
+export default function App() {
+  const [unlocked, setUnlocked] = useState(false);
+  const [pw, setPw]             = useState("");
+  const [pwErr, setPwErr]       = useState(false);
+  const [shake, setShake]       = useState(false);
+  const [showPw, setShowPw]     = useState(false);
+  const [tab, setTab]           = useState("today");
+
+  const handleUnlock = () => {
+    if (pw === PASSWORD) { setUnlocked(true); setPwErr(false); }
+    else {
+      setPwErr(true); setShake(true);
+      setTimeout(() => setShake(false), 600);
+      setPw("");
+    }
+  };
+
+  if (!unlocked) return <LockScreen pw={pw} setPw={setPw} pwErr={pwErr} shake={shake} showPw={showPw} setShowPw={setShowPw} onUnlock={handleUnlock} />;
+  return <MainApp onLock={() => setUnlocked(false)} tab={tab} setTab={setTab} />;
+}
+
+// ─── Lock Screen ──────────────────────────────────────────────────
+function LockScreen({ pw, setPw, pwErr, shake, showPw, setShowPw, onUnlock }) {
+  return (
+    <div style={{ minHeight:"100vh", background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Georgia',serif" }}>
+      <style>{`
+        @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-10px)}40%,80%{transform:translateX(10px)}}
+        @keyframes fadeIn{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,107,0,.35)}60%{box-shadow:0 0 0 14px rgba(255,107,0,0)}}
+        *{box-sizing:border-box}
+      `}</style>
+      <div style={{ animation:shake?"shake .6s":"fadeIn .5s ease", background:"#fff", border:"2.5px solid #FF6B00", borderRadius:28, padding:"52px 44px", width:320, boxShadow:"0 12px 50px rgba(255,107,0,.18)", textAlign:"center" }}>
+        <div style={{ fontSize:52 }}>🔐</div>
+        <h1 style={{ color:"#FF6B00", fontSize:24, fontWeight:900, margin:"8px 0 4px" }}>Aryan's Planner</h1>
+        <p style={{ color:"#bbb", fontSize:13, marginBottom:24 }}>Enter password to continue</p>
+        <div style={{ position:"relative", marginBottom:12 }}>
+          <input type={showPw?"text":"password"} value={pw}
+            onChange={e=>{ setPw(e.target.value); }}
+            onKeyDown={e=>e.key==="Enter"&&onUnlock()}
+            placeholder="Password"
+            style={{ width:"100%", padding:"12px 44px 12px 16px", borderRadius:14, border:pwErr?"2px solid #e53e3e":"2px solid #FFD0A8", fontSize:15, outline:"none", color:"#333", fontFamily:"monospace", background:"#FFF8F3" }}
+          />
+          <span onClick={()=>setShowPw(!showPw)} style={{ position:"absolute", right:14, top:"50%", transform:"translateY(-50%)", cursor:"pointer", fontSize:18, userSelect:"none" }}>{showPw?"🙈":"👁️"}</span>
+        </div>
+        {pwErr && <p style={{ color:"#e53e3e", fontSize:13, marginBottom:10 }}>❌ Wrong password. Try again.</p>}
+        <button onClick={onUnlock} style={{ width:"100%", padding:"13px 0", background:"#FF6B00", color:"#fff", border:"none", borderRadius:14, fontSize:16, fontWeight:800, cursor:"pointer", animation:"pulse 2s infinite", transition:"all .2s" }}>
+          Unlock 🚀
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────
+function MainApp({ onLock, tab, setTab }) {
+  const [dayTypes, setDayTypes] = useLS("ap_dayTypes", {});
+  const [tasks,    setTasks]    = useLS("ap_tasks",    {});
+  const [habits,   setHabits]   = useLS("ap_habits",   {});
+  const [selDate,  setSelDate]  = useState(new Date());
+  const [calMonth, setCalMonth] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [newInputs, setNewInputs] = useState({});
+
+  const selKey  = dateKey(selDate);
+  const dayType = dayTypes[selKey] || null;
+  const tt      = dayType === "normal" ? NORMAL_TIMETABLE : dayType === "holiday" ? HOLIDAY_TIMETABLE : [];
+
+  const lockDayType = type => {
+    if (dayTypes[selKey]) return;
+    setDayTypes(p => ({ ...p, [selKey]: type }));
+  };
+
+  // ── task helpers
+  const getTask = (sid, idx) => tasks[`${selKey}-${sid}-${idx}`] || null;
+  const addTask = (sid, idx) => {
+    const k = `${selKey}-${sid}-${idx}`;
+    const val = (newInputs[k] || "").trim();
+    if (!val) return;
+    setTasks(p => ({ ...p, [k]: { text: val, pct: 0 } }));
+    setNewInputs(p => ({ ...p, [k]: "" }));
+  };
+  const setPct = (sid, idx, pct) => {
+    const k = `${selKey}-${sid}-${idx}`;
+    setTasks(p => ({ ...p, [k]: { ...p[k], pct: Number(pct) } }));
+  };
+
+  // ── day progress
+  const totalSlots   = tt.reduce((a, s) => a + calcSlots(s.time), 0);
+  const allSlotKeys  = tt.flatMap(s => Array.from({ length: calcSlots(s.time) }, (_, i) => `${selKey}-${s.id}-${i}`));
+  const filledTasks  = allSlotKeys.map(k => tasks[k]).filter(Boolean);
+  const dayPct       = totalSlots === 0 ? 0 : Math.round(filledTasks.reduce((a, t) => a + (t.pct || 0), 0) / totalSlots);
+
+  // ── calendar
+  const daysInMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 0).getDate();
+  const firstDow    = new Date(calMonth.getFullYear(), calMonth.getMonth(), 1).getDay();
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#FFFAF5", fontFamily:"'Segoe UI',sans-serif", maxWidth:480, margin:"0 auto" }}>
+      <style>{`
+        @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+        .scard{animation:fadeUp .3s ease both}
+        input[type=range]{-webkit-appearance:none;appearance:none;height:7px;border-radius:4px;background:linear-gradient(to right,#FF6B00 var(--fill),#FFE0C0 var(--fill));outline:none;width:100%;cursor:pointer}
+        input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#FF6B00;border:2.5px solid #fff;box-shadow:0 2px 8px rgba(255,107,0,.4)}
+        ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#FFB347;border-radius:4px}
+        *{box-sizing:border-box}
+        .calday:hover{background:#FFF0E6!important;cursor:pointer}
+        .tabbtn:hover{color:#FF6B00!important}
+      `}</style>
+
+      {/* Header */}
+      <div style={{ background:"#FF6B00", padding:"14px 18px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <span style={{ color:"#fff", fontWeight:900, fontSize:17, letterSpacing:.3 }}>Aryan's Planner 📅</span>
+        <button onClick={onLock} style={{ background:"rgba(255,255,255,.22)", border:"none", color:"#fff", borderRadius:10, padding:"5px 13px", cursor:"pointer", fontSize:12, fontWeight:700 }}>🔒 Lock</button>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display:"flex", background:"#fff", borderBottom:"2px solid #FFE8D6", position:"sticky", top:0, zIndex:20 }}>
+        {[{k:"today",l:"Today",i:"🗓️"},{k:"history",l:"History",i:"📈"},{k:"habits",l:"Habits",i:"🔥"}].map(t => (
+          <button key={t.k} className="tabbtn" onClick={() => setTab(t.k)} style={{ flex:1, padding:"11px 0", border:"none", background:"transparent", cursor:"pointer", fontWeight:tab===t.k?800:500, fontSize:13, color:tab===t.k?"#FF6B00":"#999", borderBottom:tab===t.k?"3px solid #FF6B00":"3px solid transparent", transition:"all .2s" }}>
+            {t.i} {t.l}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ paddingBottom:60 }}>
+
+        {/* ══ TODAY TAB ══ */}
+        {tab === "today" && (
+          <div>
+            {/* Calendar */}
+            <div style={{ background:"#fff", borderBottom:"2px solid #FFE8D6", padding:"14px 16px 12px" }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+                <button onClick={() => setCalMonth(d => new Date(d.getFullYear(), d.getMonth()-1, 1))} style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B00", fontWeight:900, lineHeight:1 }}>‹</button>
+                <span style={{ fontWeight:800, fontSize:14, color:"#333" }}>{MONTHS_FULL[calMonth.getMonth()]} {calMonth.getFullYear()}</span>
+                <button onClick={() => setCalMonth(d => new Date(d.getFullYear(), d.getMonth()+1, 1))} style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"#FF6B00", fontWeight:900, lineHeight:1 }}>›</button>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:3 }}>
+                {WEEK_DAYS.map(d => <div key={d} style={{ textAlign:"center", fontSize:10, fontWeight:700, color:"#FF8C00", padding:"1px 0" }}>{d}</div>)}
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2 }}>
+                {Array.from({length:firstDow}).map((_,i) => <div key={"e"+i}/>)}
+                {Array.from({length:daysInMonth}).map((_,i) => {
+                  const d  = new Date(calMonth.getFullYear(), calMonth.getMonth(), i+1);
+                  const k  = dateKey(d);
+                  const isSel   = k === selKey;
+                  const isToday = k === todayKey();
+                  const dtype   = dayTypes[k];
+                  // get saved day pct for dot intensity
+                  const dotColor = dtype === "normal" ? "#FF6B00" : dtype === "holiday" ? "#4CAF50" : null;
+                  return (
+                    <div key={i} className="calday" onClick={() => setSelDate(d)} style={{ textAlign:"center", borderRadius:9, padding:"5px 1px", background:isSel?"#FF6B00":isToday?"#FFF0E6":"transparent", color:isSel?"#fff":isToday?"#FF6B00":"#333", fontWeight:isSel||isToday?800:400, fontSize:13, border:isToday&&!isSel?"1.5px solid #FFB347":"1.5px solid transparent", transition:"background .12s", position:"relative" }}>
+                      {i+1}
+                      {dotColor && <div style={{ width:4, height:4, borderRadius:"50%", background:isSel?"#fff":dotColor, margin:"1px auto 0" }}/>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Big date + day type */}
+            <div style={{ padding:"16px 18px 0" }}>
+              <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between" }}>
+                <div>
+                  <div style={{ fontSize:62, fontWeight:900, color:"#FF6B00", lineHeight:1, fontFamily:"'Georgia',serif" }}>{selDate.getDate()}</div>
+                  <div style={{ fontSize:13, fontWeight:700, color:"#666", marginTop:1 }}>{WEEK_DAYS[selDate.getDay()]}, {MONTHS_FULL[selDate.getMonth()]} {selDate.getFullYear()}</div>
+                </div>
+                {dayType
+                  ? <div style={{ background:dayType==="normal"?"#FF6B00":"#4CAF50", color:"#fff", borderRadius:20, padding:"7px 16px", fontWeight:800, fontSize:13, display:"flex", alignItems:"center", gap:5 }}>
+                      {dayType==="normal"?"📚 Normal":"🎉 Holiday"} <span style={{ fontSize:10, opacity:.8 }}>🔒</span>
+                    </div>
+                  : <div style={{ fontSize:11, color:"#bbb", textAlign:"right", lineHeight:1.5 }}>No type<br/>set yet</div>
+                }
+              </div>
+
+              {/* Day type selector */}
+              {!dayType && (
+                <div style={{ marginTop:14, background:"#FFF0E6", borderRadius:16, padding:14, border:"2px dashed #FFB347" }}>
+                  <p style={{ margin:"0 0 10px", fontWeight:700, color:"#FF6B00", fontSize:13 }}>⚠️ Select day type — locked once chosen</p>
+                  <div style={{ display:"flex", gap:10 }}>
+                    {["normal","holiday"].map(type => (
+                      <button key={type} onClick={() => lockDayType(type)} style={{ flex:1, padding:"12px 0", borderRadius:14, border:"none", background:type==="normal"?"#FF6B00":"#4CAF50", color:"#fff", fontWeight:800, fontSize:14, cursor:"pointer" }}>
+                        {type==="normal"?"📚 Normal":"🎉 Holiday"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Day Progress Bar */}
+              {dayType && (
+                <div style={{ marginTop:14, background:"#fff", borderRadius:16, padding:"13px 15px", border:"1.5px solid #FFE0C0", boxShadow:"0 2px 10px rgba(255,107,0,.06)" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:7 }}>
+                    <span style={{ fontWeight:800, fontSize:13, color:"#333" }}>Day Completion</span>
+                    <span style={{ fontWeight:900, fontSize:24, color:dayPct===100?"#4CAF50":"#FF6B00" }}>{dayPct}%</span>
+                  </div>
+                  <div style={{ background:"#FFE8D6", borderRadius:100, height:13, overflow:"hidden" }}>
+                    <div style={{ height:"100%", borderRadius:100, width:`${dayPct}%`, background:dayPct===100?"#4CAF50":"linear-gradient(90deg,#FF6B00,#FFB347)", transition:"width .5s ease" }}/>
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginTop:5 }}>
+                    <span style={{ fontSize:11, color:"#aaa" }}>{filledTasks.length}/{totalSlots} slots filled</span>
+                    <span style={{ fontSize:11, fontWeight:700, color:dayPct===100?"#4CAF50":dayPct>=75?"#FF6B00":dayPct>=50?"#FF8C00":"#aaa" }}>
+                      {dayPct===100?"🏆 Perfect day!":dayPct>=75?"🔥 Almost there!":dayPct>=50?"💪 Halfway!":dayPct>0?"🌱 Keep going!":"Not started"}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Timetable */}
+            {dayType && (
+              <div style={{ padding:"14px 18px 0" }}>
+                <h3 style={{ margin:"0 0 10px", fontSize:13, color:"#999", fontWeight:700, textTransform:"uppercase", letterSpacing:.8 }}>
+                  {dayType==="normal"?"📚 Normal Day":"🎉 Holiday"} Schedule
+                </h3>
+                {tt.map((slot, si) => {
+                  const slots = calcSlots(slot.time);
+                  return (
+                    <div key={slot.id} className="scard" style={{ background:"#fff", borderRadius:18, marginBottom:11, border:"1.5px solid #FFE0C0", overflow:"hidden", animationDelay:`${si*.04}s`, boxShadow:"0 2px 8px rgba(255,107,0,.05)" }}>
+                      <div style={{ background:"#FF6B00", padding:"9px 14px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                        <div>
+                          <div style={{ color:"#fff", fontWeight:800, fontSize:14 }}>{slot.icon} {slot.subject}</div>
+                          <div style={{ color:"rgba(255,255,255,.8)", fontSize:11, marginTop:1 }}>🕐 {slot.time}</div>
+                        </div>
+                        <span style={{ background:"rgba(255,255,255,.25)", color:"#fff", fontSize:11, padding:"3px 9px", borderRadius:20, fontWeight:700 }}>{slots}h</span>
+                      </div>
+                      <div style={{ padding:"11px 14px" }}>
+                        {Array.from({length:slots}).map((_,idx) => {
+                          const task = getTask(slot.id, idx);
+                          const ik   = `${selKey}-${slot.id}-${idx}`;
+                          const pct  = task?.pct || 0;
+                          return (
+                            <div key={idx} style={{ marginBottom:idx<slots-1?11:0 }}>
+                              <div style={{ fontSize:11, color:"#FF8C00", fontWeight:700, marginBottom:4 }}>
+                                {slots>1?`Hour ${idx+1}`:"Task"}
+                              </div>
+                              {task ? (
+                                <div style={{ background:"#FFFAF5", border:"1.5px solid #FFE0C0", borderRadius:12, padding:"9px 12px" }}>
+                                  <div style={{ fontWeight:600, fontSize:13, color:"#333", marginBottom:9 }}>{task.text}</div>
+                                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                                    <input type="range" min="0" max="100" step="5" value={pct} onChange={e=>setPct(slot.id,idx,e.target.value)} style={{"--fill":`${pct}%`}}/>
+                                    <div style={{ minWidth:44, textAlign:"center", background:pct===100?"#4CAF50":"#FF6B00", color:"#fff", borderRadius:8, padding:"3px 6px", fontSize:12, fontWeight:800 }}>{pct}%</div>
+                                  </div>
+                                  <div style={{ marginTop:5, background:"#FFE8D6", borderRadius:100, height:4 }}>
+                                    <div style={{ width:`${pct}%`, height:"100%", borderRadius:100, background:pct===100?"#4CAF50":"#FF6B00", transition:"width .3s" }}/>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div style={{ display:"flex", gap:7 }}>
+                                  <input value={newInputs[ik]||""} onChange={e=>setNewInputs(p=>({...p,[ik]:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addTask(slot.id,idx)} placeholder={`Add task…`} style={{ flex:1, padding:"8px 12px", borderRadius:10, border:"1.5px solid #FFD0A8", outline:"none", fontSize:12, background:"#FFFAF5", color:"#333" }}/>
+                                  <button onClick={()=>addTask(slot.id,idx)} style={{ background:"#FF6B00", color:"#fff", border:"none", borderRadius:10, width:36, cursor:"pointer", fontSize:20, fontWeight:900, flexShrink:0 }}>+</button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!dayType && (
+              <div style={{ textAlign:"center", padding:"52px 24px", color:"#ddd" }}>
+                <div style={{ fontSize:48 }}>📋</div>
+                <p style={{ fontSize:14, color:"#bbb", marginTop:8 }}>Select day type above to load your schedule</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══ HISTORY TAB ══ */}
+        {tab === "history" && (
+          <HistoryTab dayTypes={dayTypes} tasks={tasks} />
+        )}
+
+        {/* ══ HABITS TAB ══ */}
+        {tab === "habits" && (
+          <HabitsTab selKey={selKey} habits={habits} setHabits={setHabits} selDate={selDate} />
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+// ─── History Tab ──────────────────────────────────────────────────
+function HistoryTab({ dayTypes, tasks }) {
+  const keys = Object.keys(dayTypes).sort().reverse();
+
+  const getDayPct = (dk) => {
+    const tt = dayTypes[dk]==="normal"?NORMAL_TIMETABLE:HOLIDAY_TIMETABLE;
+    const totalSlots = tt.reduce((a,s)=>a+calcSlots(s.time),0);
+    const filled = tt.flatMap(s=>Array.from({length:calcSlots(s.time)},(_,i)=>tasks[`${dk}-${s.id}-${i}`])).filter(Boolean);
+    if(!filled.length) return 0;
+    return Math.round(filled.reduce((a,t)=>a+(t.pct||0),0)/totalSlots);
+  };
+
+  // streak calc
+  let streak = 0;
+  const td = new Date(); td.setHours(0,0,0,0);
+  for (let i=0;i<365;i++) {
+    const d = new Date(td); d.setDate(d.getDate()-i);
+    const k = dateKey(d);
+    if (dayTypes[k] && getDayPct(k)>0) streak++;
+    else if (i>0) break;
+  }
+
+  // weekly avg
+  const weekKeys = [];
+  for(let i=0;i<7;i++){const d=new Date(td);d.setDate(d.getDate()-i);weekKeys.push(dateKey(d));}
+  const weekDays = weekKeys.filter(k=>dayTypes[k]);
+  const weekAvg  = weekDays.length ? Math.round(weekDays.reduce((a,k)=>a+getDayPct(k),0)/weekDays.length) : 0;
+
+  return (
+    <div style={{ padding:"16px 18px" }}>
+      <h2 style={{ margin:"0 0 14px", fontSize:16, color:"#333", fontWeight:800 }}>📈 Progress History</h2>
+
+      {/* Summary cards */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:16 }}>
+        {[
+          { label:"Days Tracked", val:keys.length, icon:"📅", color:"#FF6B00" },
+          { label:"Day Streak",   val:`${streak}🔥`, icon:"", color:"#FF3B3B" },
+          { label:"7-Day Avg",    val:`${weekAvg}%`, icon:"", color:"#4CAF50" },
+        ].map(c=>(
+          <div key={c.label} style={{ background:"#fff", border:"1.5px solid #FFE0C0", borderRadius:14, padding:"12px 8px", textAlign:"center", boxShadow:"0 2px 8px rgba(255,107,0,.05)" }}>
+            <div style={{ fontSize:20, fontWeight:900, color:c.color }}>{c.val}</div>
+            <div style={{ fontSize:10, color:"#aaa", marginTop:2, fontWeight:600 }}>{c.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {keys.length === 0 ? (
+        <div style={{ textAlign:"center", padding:48, color:"#ccc" }}>
+          <div style={{ fontSize:40 }}>📊</div>
+          <p style={{ fontSize:13, marginTop:8 }}>No history yet. Start planning!</p>
+        </div>
+      ) : (
+        keys.map(dk => {
+          const pct  = getDayPct(dk);
+          const d    = new Date(dk+"T00:00:00");
+          const tt   = dayTypes[dk]==="normal"?NORMAL_TIMETABLE:HOLIDAY_TIMETABLE;
+          const filledTasks = tt.flatMap(s=>Array.from({length:calcSlots(s.time)},(_,i)=>tasks[`${dk}-${s.id}-${i}`])).filter(Boolean);
+          return (
+            <div key={dk} style={{ background:"#fff", border:"1.5px solid #FFE0C0", borderRadius:16, padding:"13px 14px", marginBottom:11, boxShadow:"0 2px 8px rgba(255,107,0,.05)" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:9 }}>
+                <div>
+                  <div style={{ fontWeight:800, fontSize:14, color:"#333" }}>{WEEK_DAYS[d.getDay()]}, {d.getDate()} {MONTHS[d.getMonth()]} {d.getFullYear()}</div>
+                  <div style={{ fontSize:11, color:"#aaa", marginTop:1 }}>
+                    <span style={{ background:dayTypes[dk]==="normal"?"#FFF0E6":"#F0FFF4", color:dayTypes[dk]==="normal"?"#FF6B00":"#4CAF50", padding:"2px 8px", borderRadius:20, fontWeight:700, marginRight:6 }}>
+                      {dayTypes[dk]==="normal"?"📚 Normal":"🎉 Holiday"}
+                    </span>
+                    {filledTasks.length} tasks logged
+                  </div>
+                </div>
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:24, fontWeight:900, color:pct===100?"#4CAF50":pct>=75?"#FF6B00":"#FFB347" }}>{pct}%</div>
+                  <div style={{ fontSize:10, color:"#aaa" }}>done</div>
+                </div>
+              </div>
+              <div style={{ background:"#FFE8D6", borderRadius:100, height:8 }}>
+                <div style={{ width:`${pct}%`, height:"100%", borderRadius:100, background:pct===100?"#4CAF50":"linear-gradient(90deg,#FF6B00,#FFB347)", transition:"width .4s" }}/>
+              </div>
+              {/* Task list */}
+              {filledTasks.length > 0 && (
+                <div style={{ marginTop:10, display:"flex", flexDirection:"column", gap:5 }}>
+                  {filledTasks.map((t,i)=>(
+                    <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 10px", background:"#FFFAF5", borderRadius:8, border:"1px solid #FFE0C0" }}>
+                      <span style={{ fontSize:12, color:"#444", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.text}</span>
+                      <span style={{ fontSize:12, fontWeight:800, color:t.pct===100?"#4CAF50":"#FF6B00", marginLeft:8, flexShrink:0 }}>{t.pct||0}%</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// ─── Habits Tab ───────────────────────────────────────────────────
+function HabitsTab({ selKey, habits, setHabits, selDate }) {
+  const toggle = id => setHabits(p => ({ ...p, [`${selKey}-${id}`]: !p[`${selKey}-${id}`] }));
+  const done = HABITS.filter(h => habits[`${selKey}-${h.id}`]).length;
+
+  return (
+    <div style={{ padding:"16px 18px" }}>
+      <h2 style={{ margin:"0 0 2px", fontSize:16, color:"#333", fontWeight:800 }}>🔥 Daily Habits</h2>
+      <p style={{ margin:"0 0 14px", fontSize:12, color:"#aaa" }}>
+        {WEEK_DAYS[selDate.getDay()]}, {selDate.getDate()} {MONTHS_FULL[selDate.getMonth()]}
+      </p>
+
+      {/* Progress ring-style card */}
+      <div style={{ background:"#FF6B00", borderRadius:18, padding:"16px", color:"#fff", marginBottom:16 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+          <span style={{ fontWeight:800, fontSize:14 }}>Today's Habits</span>
+          <span style={{ fontWeight:900, fontSize:22 }}>{done}/{HABITS.length}</span>
+        </div>
+        <div style={{ background:"rgba(255,255,255,.3)", borderRadius:100, height:12, overflow:"hidden" }}>
+          <div style={{ height:"100%", borderRadius:100, background:"#fff", width:`${(done/HABITS.length)*100}%`, transition:"width .4s" }}/>
+        </div>
+        <p style={{ margin:"7px 0 0", fontSize:11, opacity:.85 }}>
+          {done===HABITS.length?"🎉 All habits done! Legend!":HABITS.length-done+" remaining"}
+        </p>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+        {HABITS.map(h => {
+          const isDone = habits[`${selKey}-${h.id}`];
+          return (
+            <div key={h.id} onClick={()=>toggle(h.id)} style={{ background:isDone?"#FF6B00":"#fff", border:"2px solid "+(isDone?"#FF6B00":"#FFE0C0"), borderRadius:18, padding:"18px 12px", cursor:"pointer", textAlign:"center", transition:"all .18s", transform:isDone?"scale(1.03)":"scale(1)", boxShadow:isDone?"0 4px 16px rgba(255,107,0,.22)":"0 2px 6px rgba(0,0,0,.04)" }}>
+              <div style={{ fontSize:30, marginBottom:6 }}>{h.icon}</div>
+              <div style={{ fontSize:12, fontWeight:700, color:isDone?"#fff":"#444", lineHeight:1.3 }}>{h.name}</div>
+              <div style={{ marginTop:8, fontSize:20 }}>{isDone?"✅":"⭕"}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {done===HABITS.length && (
+        <div style={{ textAlign:"center", marginTop:18, padding:18, background:"#FFF8F0", borderRadius:16, border:"2px dashed #FFB347" }}>
+          <div style={{ fontSize:38 }}>🏆</div>
+          <p style={{ color:"#FF6B00", fontWeight:800, margin:"6px 0 0", fontSize:14 }}>Perfect! Keep it up Aryan!</p>
+        </div>
+      )}
+    </div>
+  );
+}
