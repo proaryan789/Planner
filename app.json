@@ -12,6 +12,7 @@
       "package": "com.aryan.planner"
     },
     "extra": {
+      "var": {},
       "eas": {
         "projectId": "c4e33972-90cc-4985-a459-3eac6b9e3749"
       }
