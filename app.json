@@ -15,14 +15,19 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.aryan.planner",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      },
-      "package": "com.aryan.planner"
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "5teefkw7b68u6c-k9nq3"
+      }
     }
   }
 }
